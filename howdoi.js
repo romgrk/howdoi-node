@@ -1,114 +1,177 @@
-#!/usr/bin/env node
+/*
+ * howdoi.js
+ */
 
-var cheerio = require('cheerio');
-var request = require('request');
-var clc = require('cli-color');
+const TurndownService = require('turndown')
+const cheerio = require('cheerio')
+const request = require('request-promise-native')
 
-var args = require('optimist')
-    .default({
-        engine: 'google',
-        site: ['stackoverflow.com', 'serverfault.com', 'superuser.com',
-            'askubuntu.com', '*.stackexchange.com'],
-        result: 1,
-        answer: 1,
-        code: false,
-        links: false
-    })
-    .describe('engine', 'google or duck')
-    .describe('site', 'comma separated stackexchange sites')
-    .describe('result', 'which search result')
-    .describe('answer', 'which answer')
-    .describe('code', 'extract only code')
-    .describe('links', 'show all links')
-    .describe('color', 'show results in plain text (default no-color)')
-    .demand(1)
-    .argv;
+const requestHTML = request.defaults({
+  proxy: process.env.HTTP_PROXY ? process.env.HTTP_PROXY : undefined,
+  headers: {
+    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/66.0.3359.45 Safari/537.36'
+  },
+  transform: body => cheerio.load(body)
+})
 
+const turndownService = new TurndownService()
 
-var query = ' ' + args._.join(' ').replace(/\^/g,'-');
+module.exports = howdoi
 
-if (args.engine == 'duck') {
-    var url = 'http://duckduckgo.com/html?q=' + encodeURIComponent(
-        'site:' + args.site.join(',') + query);
-    var links_selector = '.links_main a';
+/*
+// Usage:
+require('util').inspect.defaultOptions = { depth: 5 }
+howdoi({
+  query: '.sr-only',
+  results: 5,
+  answers: 1,
+  result: 0,
+  answer: 0,
+  resultsOnly: false,
+  codeOnly: true,
+})
+.then(console.log, console.error)
+*/
+
+/**
+ * A howdoi answer
+ * @typedef Answer
+ * @property {boolean} isAccepted
+ * @property {string} language
+ * @property {string} code
+ * @property {string} [text]
+ * @property {string} [html]
+ *
+ */
+/**
+ * A howdoi search result
+ * @typedef Result
+ * @property {string} title
+ * @property {string} url
+ * @property {string} [tag]
+ * @property {Answer[]} answers
+ */
+
+/**
+ * @param {Object} options
+ * @param {string} options.query The search query
+ * @param {string} [options.engine='duck'] The search engine ('duck' only for the moment)
+ * @param {string} [options.site='stackoverflow.com'] StackExchange site to search
+ * @param {number} [options.results=1] Number of results to load
+ * @param {number} [options.answers=5] Number of answers to load
+ * @param {number} [options.result] Index of result to load
+ * @param {number} [options.answer] Index of answer to load
+ * @param {boolean} [options.codeOnly=false] Extract code only
+ * @param {boolean} [options.resultsOnly=false] Extract results only
+ * @returns {Result[]}
+ */
+function howdoi(options) {
+  options.engine = options.engine || 'duck'
+  options.site = options.site || 'stackoverflow.com'
+  options.results = options.results || 1
+  options.answers = options.answers || 5
+  options.codeOnly = options.codeOnly !== undefined ? options.codeOnly : false
+  options.resultsOnly = options.resultsOnly !== undefined ? options.resultsOnly : false
+
+  const hasResult = options.result !== undefined
+  const hasAnswer = options.answer !== undefined
+
+  const details = getEngineDetails(options)
+
+  /* console.log(options)
+   * process.exit(0) */
+  return requestHTML(details.url)
+  .then($ => {
+
+    const links = $(details.linksSelector)
+      .map((i, el) => ({
+        title: getTitle($(el).text()),
+        tag: getTag($(el).text()),
+        url: el.attribs.href
+      }))
+      .slice(0, options.results)
+
+    const link = hasResult ?  links[options.result] : undefined
+
+    if (links.length === 0)
+      return options.resultsOnly ? link : []
+
+    if (options.resultsOnly)
+      return hasResult ? link : links
+
+    return Promise.all((hasResult ? [link] : links).map(link =>
+      requestHTML(link.url)
+      .then($ => {
+        const answers = $('.answer')
+          .map((i, el) => {
+            const answer = $(el)
+            const element = answer.find('.post-text')
+
+            const codeElement = element.find('pre')
+
+            return options.codeOnly ?
+              {
+                isAccepted: answer.attr('class').includes('accepted-answer'),
+                language: getLang(codeElement.attr('class') || ''),
+                code: codeElement.text()
+              } :
+              {
+                isAccepted: answer.attr('class').includes('accepted-answer'),
+                text: turndownService.turndown(element.html()),
+                html: element.html(),
+                language: getLang(codeElement.attr('class') || ''),
+                code: codeElement.text()
+              }
+          })
+          .slice(0, options.answers)
+
+        if (hasAnswer)
+          return { title: link.title, url: link.url, answers: [answers[options.answer]] }
+
+        return { title: link.title, url: link.url, answers }
+      })
+    ))
+  })
 }
-else if (args.engine == 'google') {
-    var url = 'http://www.google.com/cse?cx=003507065920591675867%3Axyxvbg8-oie&ie=UTF-8&nojs=1&q=' +
-              encodeURIComponent(query);
-    var links_selector = '.r a.l';
+
+function getEngineDetails(options) {
+  switch (options.engine) {
+    case 'duck':
+      return {
+        url: 'http://duckduckgo.com/html?q=' + options.query + '+' + encodeURIComponent('site:' + options.site),
+        linksSelector: '.result__a'
+      }
+    /* Not working
+    case 'google':
+      return {
+        url: 'http://www.google.com/cse?cx=003507065920591675867%3Axyxvbg8-oie&ie=UTF-8&q=' + encodeURIComponent(options.query),
+        linksSelector: '.r a.l'
+      }
+    */
+    default:
+      throw new Error('Unsupported engin')
+  }
 }
 
-var ansiTrim = require('cli-color/trim');
-var aError = clc.red;
-var aPlain = clc.white;
-var aCode = clc.green;
-var aLink = clc.black.bold;
+function getTitle(text) {
+  const title =
+    text.trim()
+        .replace(/^[^-]*? - /, '')
+        .replace(/ - [^-]*?$/, '')
 
-var aLog = function() {
-    var a = [];
-    for (var i = 0; i < arguments.length; i++) {
-        a.push( (typeof arguments[i] === 'string') ? ansiTrim( arguments[i] ) : arguments[i] );
-    }
-    console.log.apply(this, a);
-};
-
-if(args.color === true) {
-    aLog = console.log;
+  return title
 }
 
-if(process.env.HTTP_PROXY) {
-    request = request.defaults({"proxy": process.env.HTTP_PROXY});
+function getTag(text) {
+  const m = text.trim().match(/^(\w+) - /)
+  if (m)
+    return m[1]
+  return undefined
 }
 
-request(url, function(e, r, body) {
-    var res = args.result - 1, ans = args.answer - 1;
-
-    var $ = cheerio.load(body),
-        links = $(links_selector).map(function(i, el) { return el.attribs.href; });
-    
-    if (!args.code && args.links) for (var k = 0; k < res && links[k]; ++k) {
-        aLog(aLink("#" + (k+1)), aLink(links[k]));
-    }
-    if (!links[res]) {
-        aLog(aError("No results found"));
-    }
-    else request(links[args.result - 1], function(e, r, body) {
-        var $ = cheerio.load(body);
-        var answers = $('.answer .post-text').map(function(i, el) {
-            if (args.code) {
-                return aCode($(el).find('pre').text());
-            }
-            var code = $(el).find('pre');
-            var textAns = $(el).text();
-            for(var o = 0; o < code.length; o++) {
-                var codeText = $(code[o]).text();
-                textAns = textAns.replace( codeText, aCode(codeText) );
-            }
-            return textAns;
-        });
-
-        if (args.links) {
-            aLog( aLink("#" + (res+1)), aLink(links[res]), aLink('@'), aLink((ans+1) + '/' + answers.length) );
-        }
-
-        if (!answers.length) {
-            aLog( aError("Result has no answers. Try some other results e.g. --result 2") );
-            args.links = true;
-        }
-        else if (!answers[ans]) {
-            aLog( aError("No such answer. Try using --result 2 etc") );
-            args.links = true;
-        }
-        else {
-            aLog( answers[ans] );
-        }
-
-        if (!args.code && !args.links) {
-            aLog( aLink("#" + (res+1)), aLink(links[res]), aLink('@'), aLink((ans+1) + '/' + answers.length) );
-        }
-
-        if (!args.code && args.links) for (var k = res + 1; links[k]; ++k) {
-            aLog( aLink("#" + (k+1)), aLink(links[k]) );
-        }
-    });
-});
+function getLang(className) {
+  const m = className.match(/lang-(\w+)/)
+  if (m)
+    return m[1]
+  return undefined
+}

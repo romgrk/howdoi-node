@@ -4,13 +4,16 @@
   "description": "Howdoi implementation in node.js with more options, more stackexchange sites and better text",
   "main": "howdoi.js",
   "bin": {
-    "howdoi": "./howdoi.js"
+    "howdoi": "./cli.js"
   },
   "dependencies": {
     "cheerio": "~0.10.5",
     "cli-color": "^0.3.2",
+    "jsdom": "^12.0.0",
     "optimist": "~0.3.5",
-    "request": "~2.12.0"
+    "request": "^2.88.0",
+    "request-promise-native": "^1.0.5",
+    "turndown": "^5.0.1"
   },
   "devDependencies": {},
   "scripts": {
