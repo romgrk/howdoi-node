@@ -9,7 +9,7 @@ const args = require('optimist')
     .default({
         engine: 'duck',
         site: 'stackoverflow.com',
-        // result: 1,
+        results: 1,
         answers: 1,
         color: true,
         codeOnly: false,
@@ -67,7 +67,7 @@ howdoi({ ...args, query })
       const n = j + 1
       const header = answer.isAccepted ?
         style.answerAccepted('✔ Answer ' + n) :
-        style.answer('> Answer ' + n)
+        style.answer('• Answer ' + n)
 
       const text =
         header + '\n'

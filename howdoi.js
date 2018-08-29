@@ -78,8 +78,6 @@ function howdoi(options) {
 
   const details = getEngineDetails(options)
 
-  /* console.log(options)
-   * process.exit(0) */
   return requestHTML(details.url)
   .then($ => {
 
