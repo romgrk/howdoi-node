@@ -6,13 +6,23 @@ const TurndownService = require('turndown')
 const cheerio = require('cheerio')
 const request = require('request-promise-native')
 
-const requestHTML = request.defaults({
-  proxy: process.env.HTTP_PROXY ? process.env.HTTP_PROXY : undefined,
-  headers: {
-    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/66.0.3359.45 Safari/537.36'
-  },
-  transform: body => cheerio.load(body)
-})
+const USER_AGENTS = [
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.7; rv:11.0) Gecko/20100101 Firefox/11.0',
+  'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:22.0) Gecko/20100 101 Firefox/22.0',
+  'Mozilla/5.0 (Windows NT 6.1; rv:11.0) Gecko/20100101 Firefox/11.0',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_7_4) AppleWebKit/536.5 (KHTML, like Gecko) Chrome/19.0.1084.46 Safari/536.5',
+  'Mozilla/5.0 (Windows; Windows NT 6.1) AppleWebKit/536.5 (KHTML, like Gecko) Chrome/19.0.1084.46 Safari/536.5',
+]
+
+const requestHTML = uri =>
+  request({
+    uri: uri,
+    proxy: process.env.HTTP_PROXY ? process.env.HTTP_PROXY : undefined,
+    headers: {
+      'User-Agent': USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)]
+    },
+    transform: body => cheerio.load(body),
+  })
 
 const turndownService = new TurndownService()
 
@@ -25,10 +35,11 @@ howdoi({
   query: '.sr-only',
   results: 5,
   answers: 1,
-  result: 0,
-  answer: 0,
+  // result: 0,
+  // answer: 0,
   resultsOnly: false,
   codeOnly: true,
+  engine: 'google',
 })
 .then(console.log, console.error)
 */
@@ -55,7 +66,7 @@ howdoi({
 /**
  * @param {Object} options
  * @param {string} options.query The search query
- * @param {string} [options.engine='duck'] The search engine ('duck' only for the moment)
+ * @param {string} [options.engine='google'] The search engine ('google', 'duck', 'bing')
  * @param {string} [options.site='stackoverflow.com'] StackExchange site to search
  * @param {number} [options.results=1] Number of results to load
  * @param {number} [options.answers=5] Number of answers to load
@@ -66,7 +77,7 @@ howdoi({
  * @returns {Result[]}
  */
 function howdoi(options) {
-  options.engine = options.engine || 'duck'
+  options.engine = options.engine || 'google'
   options.site = options.site || 'stackoverflow.com'
   options.results = options.results || 1
   options.answers = options.answers || 5
@@ -97,8 +108,9 @@ function howdoi(options) {
     if (options.resultsOnly)
       return hasResult ? link : links
 
-    return Promise.all((hasResult ? [link] : links).map(link =>
-      requestHTML(link.url)
+    return Promise.all((hasResult ? [link] : links).map((link, i) => {
+
+      return requestHTML(link.url)
       .then($ => {
         const answers = $('.answer')
           .map((i, el) => {
@@ -128,7 +140,7 @@ function howdoi(options) {
 
         return { title: link.title, url: link.url, answers }
       })
-    ))
+    }))
   })
 }
 
@@ -136,18 +148,21 @@ function getEngineDetails(options) {
   switch (options.engine) {
     case 'duck':
       return {
-        url: 'http://duckduckgo.com/html?q=' + options.query + '+' + encodeURIComponent('site:' + options.site),
+        url: 'https://duckduckgo.com/html?q=' + options.query + encodeURIComponent(' site:' + options.site),
         linksSelector: '.result__a'
       }
-    /* Not working
     case 'google':
       return {
-        url: 'http://www.google.com/cse?cx=003507065920591675867%3Axyxvbg8-oie&ie=UTF-8&q=' + encodeURIComponent(options.query),
-        linksSelector: '.r a.l'
+        url: 'https://www.google.com/search?q=' + options.query + encodeURIComponent(' site:' + options.site),
+        linksSelector: '.r a'
       }
-    */
+    case 'bing':
+      return {
+        url: 'https://www.bing.com/search?q=' + options.query + encodeURIComponent(' site:' + options.site),
+        linksSelector: '#b_results li > *:first-child > a'
+      }
     default:
-      throw new Error('Unsupported engin')
+      throw new Error('Unsupported engine')
   }
 }
 

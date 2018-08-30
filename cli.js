@@ -7,7 +7,7 @@ const howdoi = require('./howdoi.js')
 
 const args = require('optimist')
     .default({
-        engine: 'duck',
+        engine: 'google',
         site: 'stackoverflow.com',
         results: 1,
         answers: 1,
@@ -15,7 +15,7 @@ const args = require('optimist')
         codeOnly: false,
         links: false
     })
-    .describe('engine', 'duck only for the moment')
+    .describe('engine', 'google, duck, or bing')
     .describe('site', 'stackexchange site to search')
     .describe('results', 'number of search result')
     .describe('answers', 'number of answer')
